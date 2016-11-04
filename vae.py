@@ -79,7 +79,7 @@ class VAE:
         regularized_loss = loss + lam * l2_loss
 
         tf.scalar_summary("lowerbound", loss)
-        train_step = tf.train.AdamOptimizer(0.01).minimize(regularized_loss)
+        train_step = tf.train.AdamOptimizer(0.001).minimize(regularized_loss)
 
         self.x = x
         self.train_step = train_step
@@ -98,7 +98,7 @@ class VAE:
             raise RuntimeError("No model trained.")
 
     def train(self):
-        n_steps = int(1e4)
+        n_steps = int(5e4)
         batch_size = 100
         with tf.Session() as sess:
             # add op for merging summary
@@ -129,7 +129,7 @@ class VAE:
             images = sess.run(self.x_hat, feed_dict={self.z: z_mu})
             _, a = plt.subplots(ncols=self.display_samples)
             for i in range(self.display_samples):
-                a[i].imshow(images[i].reshape((28, 28)), cmap='gray')
+                a[i].imshow(images[i].reshape((28, 28)), cmap='gray', vmin=0, vmax=1)
             plt.show()
 
     def reconstruct(self):
@@ -139,8 +139,8 @@ class VAE:
             images = sess.run(self.x_hat, feed_dict={self.x: mnist.test.images[:self.display_samples]})
             _, a = plt.subplots(2, self.display_samples)
             for i in range(self.display_samples):
-                a[0][i].imshow(mnist.test.images[i].reshape((28, 28)), cmap='gray')
-                a[1][i].imshow(images[i].reshape((28, 28)), cmap='gray')
+                a[0][i].imshow(mnist.test.images[i].reshape((28, 28)), cmap='gray', vmin=0, vmax=1)
+                a[1][i].imshow(images[i].reshape((28, 28)), cmap='gray', vmin=0, vmax=1)
             plt.show()
 
 v = VAE()
