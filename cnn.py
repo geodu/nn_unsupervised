@@ -9,38 +9,46 @@ NUM_CLASSES = 3
 BATCH_SIZE = 50
 
 def files_and_labels():
-  files = glob.glob('/home/dnreshef/ddsm/*/scaled/*.png')
+  files = glob.glob('/home/george/Documents/ddsm/pics/*/scaled/*.png')
   length = int(len(files) / 4)
   files.sort()
-  cc = files[::2]
-  mlo = files[1::2]
-  cc_pairs = [(cc[i], cc[i+1]) for i in range(length)]
-  mlo_pairs = [(mlo[i], mlo[i+1]) for i in range(length)]
-  image = cc_pairs + mlo_pairs
-  label = map(lambda tup: 2 if 'benign' in tup[0] else 1 if 'cancer' in tup[0] else 0, output)
-  return image, list(label)
+  cc_left = files[::4]
+  cc_right = files[2::4]
+  mlo_left = files[1::4]
+  mlo_right = files[3::4]
+  left_image = cc_left + mlo_left
+  right_image = cc_right + mlo_right
+  label = map(lambda x: 2 if 'benign' in x else 1 if 'cancer' in x else 0, left_image)
+  return left_image, right_image, list(label)
+
+def _process_image_string(istr):
+  value = tf.read_file(istr)
+  img = tf.image.decode_png(value)
+  w_img = tf.image.per_image_whitening(img)
+  w_img.set_shape((512, 256, 1))
+  return w_img
 
 def get_data():
-  image_list, label_list = files_and_labels()
-  images = tf.convert_to_tensor(image_list, dtype=tf.string)
+  l_image_list, r_image_list, label_list = files_and_labels()
+  l_images = tf.convert_to_tensor(l_image_list, dtype=tf.string)
+  r_images = tf.convert_to_tensor(r_image_list, dtype=tf.string)
   labels = tf.convert_to_tensor(label_list, dtype=tf.int32)
 
-  input_queue = tf.train.slice_input_producer([images, labels])
+  input_queue = tf.train.slice_input_producer([l_images, r_images, labels])
 
-  value = tf.read_file(input_queue[0])
-  my_img = tf.image.decode_png(value)
-  return tf.image.per_image_whitening(my_img), input_queue[1]
+  l_img = _process_image_string(input_queue[0])
+  r_img = _process_image_string(input_queue[1])
+  return l_img, r_img, input_queue[2]
 
 def get_batch():
-  image, label = get_data()
-  image.set_shape((512, 256, 1))
+  l_image, r_image, label = get_data()
   batch_size = BATCH_SIZE
   min_after_dequeue = 1000
   capacity = min_after_dequeue + 3 * batch_size
-  image_batch, label_batch = tf.train.shuffle_batch(
-      [image, label], batch_size=batch_size, capacity=capacity,
+  l_image_batch, r_image_batch, label_batch = tf.train.shuffle_batch(
+      [l_image, r_image, label], batch_size=batch_size, capacity=capacity,
        min_after_dequeue=min_after_dequeue)
-  return image_batch, label_batch
+  return l_image_batch, r_image_batch, label_batch
 
 def _activation_summary(x):
   """Helper to create summaries for activations.
@@ -93,7 +101,7 @@ def _variable_with_weight_decay(name, shape, stddev, wd):
   return var
 
 def inference():
-  images, labels = get_batch()
+  images, images2, labels = get_batch()
   # We instantiate all variables using tf.get_variable() instead of
   # tf.Variable() in order to share variables across multiple GPU training runs.
   # If we only ran this model on a single GPU, we could simplify this function
