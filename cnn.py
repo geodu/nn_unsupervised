@@ -8,23 +8,39 @@ import tensorflow as tf
 NUM_CLASSES = 3
 BATCH_SIZE = 50
 
-def get_data(files):
-  filename_queue = tf.train.string_input_producer(glob.glob(files))
-  reader = tf.WholeFileReader()
-  key, value = reader.read(filename_queue)
+def files_and_labels():
+  files = glob.glob('/home/dnreshef/ddsm/*/scaled/*.png')
+  length = int(len(files) / 4)
+  files.sort()
+  cc = files[::2]
+  mlo = files[1::2]
+  cc_pairs = [(cc[i], cc[i+1]) for i in range(length)]
+  mlo_pairs = [(mlo[i], mlo[i+1]) for i in range(length)]
+  image = cc_pairs + mlo_pairs
+  label = map(lambda tup: 2 if 'benign' in tup[0] else 1 if 'cancer' in tup[0] else 0, output)
+  return image, list(label)
+
+def get_data():
+  image_list, label_list = files_and_labels()
+  images = tf.convert_to_tensor(image_list, dtype=tf.string)
+  labels = tf.convert_to_tensor(label_list, dtype=tf.int32)
+
+  input_queue = tf.train.slice_input_producer([images, labels])
+
+  value = tf.read_file(input_queue[0])
   my_img = tf.image.decode_png(value)
-  return tf.image.per_image_whitening(my_img)
+  return tf.image.per_image_whitening(my_img), input_queue[1]
 
 def get_batch():
-  files = "/home/george/Documents/ddsm/pics/normal/*.png"
-  my_img = get_data(files)
-  my_img.set_shape((512, 256, 1))
+  image, label = get_data()
+  image.set_shape((512, 256, 1))
   batch_size = BATCH_SIZE
   min_after_dequeue = 1000
   capacity = min_after_dequeue + 3 * batch_size
-  batch = tf.train.shuffle_batch([my_img], batch_size=batch_size, capacity=capacity,
-          min_after_dequeue=min_after_dequeue)
-  return batch
+  image_batch, label_batch = tf.train.shuffle_batch(
+      [image, label], batch_size=batch_size, capacity=capacity,
+       min_after_dequeue=min_after_dequeue)
+  return image_batch, label_batch
 
 def _activation_summary(x):
   """Helper to create summaries for activations.
@@ -77,7 +93,7 @@ def _variable_with_weight_decay(name, shape, stddev, wd):
   return var
 
 def inference():
-  images = get_batch()
+  images, labels = get_batch()
   # We instantiate all variables using tf.get_variable() instead of
   # tf.Variable() in order to share variables across multiple GPU training runs.
   # If we only ran this model on a single GPU, we could simplify this function
