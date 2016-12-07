@@ -100,20 +100,13 @@ def _variable_with_weight_decay(name, shape, stddev, wd):
     tf.add_to_collection('losses', weight_decay)
   return var
 
-def inference():
-  images, images2, labels = get_batch()
-  # We instantiate all variables using tf.get_variable() instead of
-  # tf.Variable() in order to share variables across multiple GPU training runs.
-  # If we only ran this model on a single GPU, we could simplify this function
-  # by replacing all instances of tf.get_variable() with tf.Variable().
-  #
-  # conv1
+def get_cnn(inp):
   with tf.variable_scope('conv1') as scope:
     kernel = _variable_with_weight_decay('weights',
                                          shape=[7, 7, 1, 64],
                                          stddev=5e-2,
                                          wd=0.0)
-    conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
+    conv = tf.nn.conv2d(inp, kernel, [1, 1, 1, 1], padding='SAME')
     biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
     bias = tf.nn.bias_add(conv, biases)
     conv1 = tf.nn.relu(bias, name=scope.name)
@@ -158,24 +151,41 @@ def inference():
     local4 = tf.nn.relu(tf.matmul(local3, weights) + biases, name=scope.name)
     _activation_summary(local4)
 
-  # softmax, i.e. softmax(WX + b)
+  return local4
+
+def get_loss(logits, labels):
+  labels = tf.cast(labels, tf.int64)
+  cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+      logits, labels, name='cross_entropy_per_example')
+  cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+  return cross_entropy_mean
+
+def inference():
+  images1, images2, labels = get_batch()
+  with tf.variable_scope('cnns') as scope:
+    cnn1 = get_cnn(images1)
+    scope.reuse_variables()
+    cnn2 = get_cnn(images2)
+  together = tf.concat(1, [cnn1, cnn2])
   with tf.variable_scope('softmax_linear') as scope:
-    weights = _variable_with_weight_decay('weights', [192, NUM_CLASSES],
-                                          stddev=1/192.0, wd=0.0)
+    weights = _variable_with_weight_decay('weights', [192*2, NUM_CLASSES],
+                                          stddev=1/(2*192.0), wd=0.0)
     biases = _variable_on_cpu('biases', [NUM_CLASSES],
                               tf.constant_initializer(0.0))
-    softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
+    softmax_linear = tf.add(tf.matmul(together, weights), biases, name=scope.name)
     _activation_summary(softmax_linear)
 
-  return softmax_linear
+  loss = get_loss(softmax_linear, labels)
+  train_step = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(loss)
+  return train_step, loss
 
 with tf.Session() as sess:
-  img = inference()
+  train_step, loss = inference()
   sess.run(tf.initialize_all_variables())
   coord = tf.train.Coordinator()
   threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-  for i in range(9):
-    image = img.eval()
-    print(image)
+  for i in range(10000):
+    _, loss = sess.run([train_step, loss])
+    print(loss)
   coord.request_stop()
   coord.join(threads)
