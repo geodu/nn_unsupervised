@@ -6,7 +6,7 @@ import glob
 import tensorflow as tf
 
 NUM_CLASSES = 3
-BATCH_SIZE = 50
+BATCH_SIZE = 20
 
 def files_and_labels():
   files = glob.glob('/home/george/Documents/ddsm/pics/*/scaled/*.png')
@@ -106,7 +106,7 @@ def get_cnn(inp):
                                          shape=[7, 7, 1, 64],
                                          stddev=5e-2,
                                          wd=0.0)
-    conv = tf.nn.conv2d(inp, kernel, [1, 1, 1, 1], padding='SAME')
+    conv = tf.nn.conv2d(inp, kernel, [1, 2, 2, 1], padding='SAME')
     biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
     bias = tf.nn.bias_add(conv, biases)
     conv1 = tf.nn.relu(bias, name=scope.name)
@@ -122,7 +122,7 @@ def get_cnn(inp):
                                          shape=[5, 5, 64, 64],
                                          stddev=5e-2,
                                          wd=0.0)
-    conv = tf.nn.conv2d(pool1, kernel, [1, 1, 1, 1], padding='SAME')
+    conv = tf.nn.conv2d(pool1, kernel, [1, 2, 2, 1], padding='SAME')
     biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
     bias = tf.nn.bias_add(conv, biases)
     conv2 = tf.nn.relu(bias, name=scope.name)
@@ -154,7 +154,6 @@ def get_cnn(inp):
   return local4
 
 def get_loss(logits, labels):
-  labels = tf.cast(labels, tf.int64)
   cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
       logits, labels, name='cross_entropy_per_example')
   cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
@@ -162,6 +161,7 @@ def get_loss(logits, labels):
 
 def inference():
   images1, images2, labels = get_batch()
+  labels = tf.cast(labels, tf.int64)
   with tf.variable_scope('cnns') as scope:
     cnn1 = get_cnn(images1)
     scope.reuse_variables()
@@ -175,17 +175,20 @@ def inference():
     softmax_linear = tf.add(tf.matmul(together, weights), biases, name=scope.name)
     _activation_summary(softmax_linear)
 
+  correct_prediction = tf.equal(tf.argmax(softmax_linear, 1), labels)
+  accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
   loss = get_loss(softmax_linear, labels)
   train_step = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(loss)
-  return train_step, loss
+  return train_step, loss, accuracy
 
 with tf.Session() as sess:
-  train_step, loss = inference()
+  train_step, loss, accuracy = inference()
   sess.run(tf.initialize_all_variables())
   coord = tf.train.Coordinator()
   threads = tf.train.start_queue_runners(sess=sess, coord=coord)
   for i in range(10000):
-    _, loss = sess.run([train_step, loss])
-    print(loss)
+    _, los, acc = sess.run([train_step, loss, accuracy])
+    print("Step {0} Loss {1} Accuracy {2}".format(i, los, acc))
   coord.request_stop()
   coord.join(threads)
