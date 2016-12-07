@@ -8,8 +8,8 @@ import tensorflow as tf
 NUM_CLASSES = 3
 BATCH_SIZE = 20
 
-def files_and_labels():
-  files = glob.glob('/home/george/Documents/ddsm/pics/*/scaled/*.png')
+def _files_and_labels(glob_str):
+  files = glob.glob(glob_str)
   length = int(len(files) / 4)
   files.sort()
   cc_left = files[::4]
@@ -28,8 +28,8 @@ def _process_image_string(istr):
   w_img.set_shape((512, 256, 1))
   return w_img
 
-def get_data():
-  l_image_list, r_image_list, label_list = files_and_labels()
+def get_data(glob_str):
+  l_image_list, r_image_list, label_list = _files_and_labels(glob_str)
   l_images = tf.convert_to_tensor(l_image_list, dtype=tf.string)
   r_images = tf.convert_to_tensor(r_image_list, dtype=tf.string)
   labels = tf.convert_to_tensor(label_list, dtype=tf.int32)
@@ -40,8 +40,8 @@ def get_data():
   r_img = _process_image_string(input_queue[1])
   return l_img, r_img, input_queue[2]
 
-def get_batch():
-  l_image, r_image, label = get_data()
+def get_batch(glob_str):
+  l_image, r_image, label = get_data(glob_str)
   batch_size = BATCH_SIZE
   min_after_dequeue = 1000
   capacity = min_after_dequeue + 3 * batch_size
@@ -136,7 +136,7 @@ def get_cnn(inp):
   with tf.variable_scope('local3') as scope:
     # Move everything into depth so we can perform a single matrix multiply.
     reshape = tf.reshape(pool2, [BATCH_SIZE, -1])
-    dim = reshape.get_shape()[1].value
+    dim = 16 * 32 * 64
     weights = _variable_with_weight_decay('weights', shape=[dim, 384],
                                           stddev=0.04, wd=0.004)
     biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))
@@ -159,8 +159,7 @@ def get_loss(logits, labels):
   cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
   return cross_entropy_mean
 
-def inference():
-  images1, images2, labels = get_batch()
+def inference(images1, images2, labels):
   labels = tf.cast(labels, tf.int64)
   with tf.variable_scope('cnns') as scope:
     cnn1 = get_cnn(images1)
@@ -183,12 +182,23 @@ def inference():
   return train_step, loss, accuracy
 
 with tf.Session() as sess:
-  train_step, loss, accuracy = inference()
+  images1 = tf.placeholder(tf.float32, shape=[None, 512, 256, 1])
+  images2 = tf.placeholder(tf.float32, shape=[None, 512, 256, 1])
+  labels = tf.placeholder(dtype=tf.int32, shape=[None])
+
+  train_image1, train_image2, train_label = get_batch('/home/george/Documents/ddsm/pics/*/scaled/*.png')
+  test_image1, test_image2, test_label = get_batch('/home/george/Documents/ddsm/pics/*/scaled/test/*.png')
+  train_step, loss, accuracy = inference(images1, images2, labels)
   sess.run(tf.initialize_all_variables())
   coord = tf.train.Coordinator()
   threads = tf.train.start_queue_runners(sess=sess, coord=coord)
   for i in range(10000):
-    _, los, acc = sess.run([train_step, loss, accuracy])
-    print("Step {0} Loss {1} Accuracy {2}".format(i, los, acc))
+    a, b, c = sess.run([train_image1, train_image2, train_label])
+    _, los = sess.run([train_step, loss], feed_dict={images1:a, images2:b, labels:c})
+    print("Step {0} Loss {1}".format(i, los))
+    if i % 50 == 0:
+      a, b, c = sess.run([test_image1, test_image2, test_label])
+      los, acc = sess.run([loss, accuracy], feed_dict={images1:a, images2:b, labels:c})
+      print("Step {0} Loss {1} Accuracy {2}".format(i, los, acc))
   coord.request_stop()
   coord.join(threads)
