@@ -3,12 +3,10 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
-import glob
 
-def _files_and_labels(glob_str):
-  files = glob.glob(glob_str)
+def _files_and_labels(file_list):
+  files = list(file_list)
   length = int(len(files) / 4)
-  files.sort()
   cc_left = files[::4]
   cc_right = files[2::4]
   mlo_left = files[1::4]
@@ -25,8 +23,8 @@ def _process_image_string(istr):
   w_img.set_shape((512, 256, 1))
   return w_img
 
-def _get_data(glob_str):
-  l_image_list, r_image_list, label_list = _files_and_labels(glob_str)
+def _get_data(file_list):
+  l_image_list, r_image_list, label_list = _files_and_labels(file_list)
   l_images = tf.convert_to_tensor(l_image_list, dtype=tf.string)
   r_images = tf.convert_to_tensor(r_image_list, dtype=tf.string)
   labels = tf.convert_to_tensor(label_list, dtype=tf.int32)
@@ -37,8 +35,8 @@ def _get_data(glob_str):
   r_img = _process_image_string(input_queue[1])
   return l_img, r_img, input_queue[2]
 
-def get_batch(glob_str, batch_size):
-  l_image, r_image, label = _get_data(glob_str)
+def get_batch(file_list, batch_size):
+  l_image, r_image, label = _get_data(file_list)
   min_after_dequeue = 1000
   capacity = min_after_dequeue + 3 * batch_size
   l_image_batch, r_image_batch, label_batch = tf.train.shuffle_batch(

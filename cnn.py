@@ -3,10 +3,14 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+import numpy as np
+import glob
+import random
 from batch import get_batch
 
 NUM_CLASSES = 3
-BATCH_SIZE = 20
+BATCH_SIZE = 32
+TRAIN_RATIO = .9
 
 def _activation_summary(x):
   """Helper to create summaries for activations.
@@ -59,6 +63,7 @@ def _variable_with_weight_decay(name, shape, stddev, wd):
   return var
 
 def get_cnn(inp):
+  batch_size = tf.shape(inp)[0]
   with tf.variable_scope('conv1') as scope:
     kernel = _variable_with_weight_decay('weights',
                                          shape=[7, 7, 1, 64],
@@ -93,7 +98,7 @@ def get_cnn(inp):
   # local3
   with tf.variable_scope('local3') as scope:
     # Move everything into depth so we can perform a single matrix multiply.
-    reshape = tf.reshape(pool2, [BATCH_SIZE, -1])
+    reshape = tf.reshape(pool2, [batch_size, -1])
     dim = 16 * 32 * 64
     weights = _variable_with_weight_decay('weights', shape=[dim, 384],
                                           stddev=0.04, wd=0.004)
@@ -125,7 +130,7 @@ def inference(images1, images2, labels):
     cnn2 = get_cnn(images2)
   together = tf.concat(1, [cnn1, cnn2])
   with tf.variable_scope('softmax_linear') as scope:
-    weights = _variable_with_weight_decay('weights', [192*2, NUM_CLASSES],
+    weights = _variable_with_weight_decay('weights', shape=[192*2, NUM_CLASSES],
                                           stddev=1/(2*192.0), wd=0.0)
     biases = _variable_on_cpu('biases', [NUM_CLASSES],
                               tf.constant_initializer(0.0))
@@ -139,24 +144,48 @@ def inference(images1, images2, labels):
   train_step = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(loss)
   return train_step, loss, accuracy
 
-with tf.Session() as sess:
+config = tf.ConfigProto()
+config.gpu_options.allow_growth=True
+with tf.Session(config=config) as sess:
+  random.seed(1337)
+  file_list = glob.glob('/home/george/Documents/ddsm/pics/*/scaled/*.png')
+  file_list.sort()
+  random.shuffle(file_list)
+  num_training = int(len(file_list) * TRAIN_RATIO)
+  num_test = len(file_list) - num_training
+  print('Running on {0} training images, {1} test images'.format(num_training, num_test))
+  train_image1, train_image2, train_label = get_batch(file_list[:num_training], BATCH_SIZE)
+  test_image1, test_image2, test_label = get_batch(file_list[num_training:], BATCH_SIZE)
+
+  print('Building model')
   images1 = tf.placeholder(tf.float32, shape=[None, 512, 256, 1])
   images2 = tf.placeholder(tf.float32, shape=[None, 512, 256, 1])
   labels = tf.placeholder(dtype=tf.int32, shape=[None])
-
-  train_image1, train_image2, train_label = get_batch('/home/george/Documents/ddsm/pics/*/scaled/*.png', BATCH_SIZE)
-  test_image1, test_image2, test_label = get_batch('/home/george/Documents/ddsm/pics/*/scaled/test/*.png', BATCH_SIZE)
   train_step, loss, accuracy = inference(images1, images2, labels)
-  sess.run(tf.initialize_all_variables())
+
   coord = tf.train.Coordinator()
   threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-  for i in range(10000):
-    a, b, c = sess.run([train_image1, train_image2, train_label])
-    _, los = sess.run([train_step, loss], feed_dict={images1:a, images2:b, labels:c})
-    print("Step {0} Loss {1}".format(i, los))
-    if i % 50 == 0:
+  sess.run(tf.initialize_all_variables())
+
+  batches_per_epoch = num_training // BATCH_SIZE
+  for epoch in range(50):
+    print('Epoch {0}'.format(epoch))
+    for i in range(batches_per_epoch):
+      global_step = epoch * batches_per_epoch + i
+      a, b, c = sess.run([train_image1, train_image2, train_label])
+      _, los = sess.run([train_step, loss], feed_dict={images1:a, images2:b, labels:c})
+      if global_step % 10 == 0:
+        print("Step {0} Loss {1}".format(global_step, los))
+
+    losses = []
+    accuracies = []
+    for i in range(num_test // BATCH_SIZE):
       a, b, c = sess.run([test_image1, test_image2, test_label])
       los, acc = sess.run([loss, accuracy], feed_dict={images1:a, images2:b, labels:c})
-      print("Test Loss {1} Test Accuracy {2}".format(i, los, acc))
+      losses.append(los)
+      accuracies.append(acc)
+    los = np.mean(losses)
+    acc = np.mean(accuracies)
+    print("\nTest Loss {0} Test Accuracy {1}\n".format(los, acc))
   coord.request_stop()
   coord.join(threads)
