@@ -66,10 +66,10 @@ def get_cnn(inp):
   batch_size = tf.shape(inp)[0]
   with tf.variable_scope('conv1') as scope:
     kernel = _variable_with_weight_decay('weights',
-                                         shape=[7, 7, 1, 64],
+                                         shape=[5, 5, 1, 64],
                                          stddev=5e-2,
                                          wd=0.0)
-    conv = tf.nn.conv2d(inp, kernel, [1, 2, 2, 1], padding='SAME')
+    conv = tf.nn.conv2d(inp, kernel, [1, 1, 1, 1], padding='SAME')
     biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
     bias = tf.nn.bias_add(conv, biases)
     conv1 = tf.nn.relu(bias, name=scope.name)
@@ -82,10 +82,10 @@ def get_cnn(inp):
   # conv2
   with tf.variable_scope('conv2') as scope:
     kernel = _variable_with_weight_decay('weights',
-                                         shape=[5, 5, 64, 64],
+                                         shape=[3, 3, 64, 64],
                                          stddev=5e-2,
                                          wd=0.0)
-    conv = tf.nn.conv2d(pool1, kernel, [1, 2, 2, 1], padding='SAME')
+    conv = tf.nn.conv2d(pool1, kernel, [1, 1, 1, 1], padding='SAME')
     biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
     bias = tf.nn.bias_add(conv, biases)
     conv2 = tf.nn.relu(bias, name=scope.name)
@@ -154,12 +154,12 @@ with tf.Session(config=config) as sess:
   num_training = int(len(file_list) * TRAIN_RATIO)
   num_test = len(file_list) - num_training
   print('Running on {0} training images, {1} test images'.format(num_training, num_test))
-  train_image1, train_image2, train_label = get_batch(file_list[:num_training], BATCH_SIZE)
-  test_image1, test_image2, test_label = get_batch(file_list[num_training:], BATCH_SIZE)
+  train_image1, train_image2, train_label = get_batch(file_list[:num_training], BATCH_SIZE, resize=4)
+  test_image1, test_image2, test_label = get_batch(file_list[num_training:], BATCH_SIZE, resize=4)
 
   print('Building model')
-  images1 = tf.placeholder(tf.float32, shape=[None, 512, 256, 1])
-  images2 = tf.placeholder(tf.float32, shape=[None, 512, 256, 1])
+  images1 = tf.placeholder(tf.float32, shape=[None, 512//4, 256//4, 1])
+  images2 = tf.placeholder(tf.float32, shape=[None, 512//4, 256//4, 1])
   labels = tf.placeholder(dtype=tf.int32, shape=[None])
   train_step, loss, accuracy = inference(images1, images2, labels)
 

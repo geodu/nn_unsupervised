@@ -35,8 +35,11 @@ def _get_data(file_list):
   r_img = _process_image_string(input_queue[1])
   return l_img, r_img, input_queue[2]
 
-def get_batch(file_list, batch_size):
+def get_batch(file_list, batch_size, resize=1):
   l_image, r_image, label = _get_data(file_list)
+  if resize > 1:
+      l_image = tf.image.resize_images(l_image, [512//resize, 256//resize])
+      r_image = tf.image.resize_images(r_image, [512//resize, 256//resize])
   min_after_dequeue = 1000
   capacity = min_after_dequeue + 3 * batch_size
   l_image_batch, r_image_batch, label_batch = tf.train.shuffle_batch(

@@ -6,11 +6,14 @@ import os.path
 import tensorflow as tf
 from blocks import conv_block, deconv_block, dense_block
 from batch import get_batch
+import random
+import glob
 
 BATCH_SIZE = 16
 HIDDEN_ENCODER_DIM = 32 * 16 * 64 * 2
 LATENT_DIM = 200
 CKPT_FILE = "ckpt/weights"
+NUM_EPOCHS = 50
 
 def _activation_summary(x):
   """Helper to create summaries for activations.
@@ -89,6 +92,10 @@ def get_decoder(inp):
 
 class VAE:
     def __init__(self):
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth=True
+        self.sess = tf.Session(config=config)
+
         images1 = tf.placeholder(tf.float32, shape=[None, 512, 256, 1])
         images2 = tf.placeholder(tf.float32, shape=[None, 512, 256, 1])
 
@@ -124,8 +131,10 @@ class VAE:
             out2 = get_decoder(f)
 
         KLD = -0.5 * tf.reduce_sum(1 + logvar_encoder - tf.pow(mu_encoder, 2) - tf.exp(logvar_encoder), reduction_indices=1)
-        BCE1 = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(tf.reshape(out1, [BATCH_SIZE, -1]), tf.reshape(images1, [BATCH_SIZE, -1])), reduction_indices=1)
-        BCE2 = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(tf.reshape(out2, [BATCH_SIZE, -1]), tf.reshape(images2, [BATCH_SIZE, -1])), reduction_indices=1)
+#        BCE1 = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(tf.reshape(out1, [BATCH_SIZE, -1]), tf.reshape(images1, [BATCH_SIZE, -1])), reduction_indices=1)
+#        BCE2 = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(tf.reshape(out2, [BATCH_SIZE, -1]), tf.reshape(images2, [BATCH_SIZE, -1])), reduction_indices=1)
+        BCE1 = tf.reduce_mean(tf.squared_difference(out1, images1))
+        BCE2 = tf.reduce_mean(tf.squared_difference(out2, images2))
         x = BCE1 + BCE2 + KLD
 
         mean_KLD = tf.reduce_mean(KLD)
@@ -157,26 +166,41 @@ class VAE:
             raise RuntimeError("No model trained.")
 
     def train(self):
-        n_steps = int(5e4)
-        with tf.Session() as sess:
-            # add op for merging summary
-            summary_op = tf.merge_all_summaries()
-            # add Saver ops
-            saver = tf.train.Saver()
-            summary_writer = tf.train.SummaryWriter('tb_logs', graph=sess.graph)
-            self._restore(sess, saver, initialize=True)
+        sess = self.sess
+        random.seed(1337)
+        file_list = glob.glob('/home/george/Documents/ddsm/pics/*/scaled/*.png')
+        file_list.sort()
+        random.shuffle(file_list)
 
-            train_image1, train_image2, train_label = get_batch('/home/george/Documents/ddsm/pics/*/scaled/*.png', BATCH_SIZE)
-            coord = tf.train.Coordinator()
-            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+        print("Running on {0} images".format(len(file_list)))
 
-            for step in range(n_steps):
-                img1, img2, lab = sess.run([train_image1, train_image2, train_label])
+        # add op for merging summary
+        summary_op = tf.merge_all_summaries()
+        # add Saver ops
+        saver = tf.train.Saver()
+        summary_writer = tf.train.SummaryWriter('tb_logs', graph=sess.graph)
+        self._restore(sess, saver, initialize=True)
+
+        train_image1, train_image2, train_label = get_batch(file_list, BATCH_SIZE)
+
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+        batches_per_epoch = len(file_list) // BATCH_SIZE
+        for epoch in range(NUM_EPOCHS):
+            print("Epoch {0}".format(epoch))
+            for i in range(batches_per_epoch):
+                global_step = epoch * batches_per_epoch + i
+                img1, img2, _ = sess.run([train_image1, train_image2, train_label])
                 _, cur_loss, summary_str = sess.run([self.train_step, self.loss, summary_op],
-                        feed_dict={self.image1: img1, self.image2: img2})
-                summary_writer.add_summary(summary_str, step)
+                    feed_dict={self.image1: img1, self.image2: img2})
+                summary_writer.add_summary(summary_str, global_step)
 
-                print("Step {0} | Loss: {1}".format(step, cur_loss))
+                print("Step {0} | Loss: {1}".format(global_step, cur_loss))
+
+    def close(self):
+        self.sess.close()
 
 v = VAE()
 v.train()
+v.close()
