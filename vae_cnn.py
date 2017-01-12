@@ -8,12 +8,14 @@ from blocks import conv_block, deconv_block, dense_block
 from batch import get_batch
 import random
 import glob
+import matplotlib.pyplot as plt
 
-BATCH_SIZE = 16
-HIDDEN_ENCODER_DIM = 32 * 16 * 64 * 2
+BATCH_SIZE = 32
+NUM_TEST = 6
+HIDDEN_ENCODER_DIM = 16 * 16 * 64
 LATENT_DIM = 200
 CKPT_FILE = "ckpt/weights"
-NUM_EPOCHS = 50
+NUM_EPOCHS = 40
 
 def _activation_summary(x):
   """Helper to create summaries for activations.
@@ -68,23 +70,47 @@ def _variable_with_weight_decay(name, shape, stddev, wd):
 def get_encoder(inp):
   with tf.variable_scope('conv1') as scope:
     h = conv_block(inp, stride=2)
+  with tf.variable_scope('conv1a') as scope:
+    h = conv_block(h, stride=1)
   with tf.variable_scope('conv2') as scope:
     h = conv_block(h, stride=2)
+  with tf.variable_scope('conv2a') as scope:
+    h = conv_block(h, stride=1)
   with tf.variable_scope('conv3') as scope:
     h = conv_block(h, stride=2)
+  with tf.variable_scope('conv3a') as scope:
+    h = conv_block(h, stride=1)
   with tf.variable_scope('conv4') as scope:
     h = conv_block(h, stride=2)
+  with tf.variable_scope('conv4a') as scope:
+    h = conv_block(h, stride=1)
+  with tf.variable_scope('conv5') as scope:
+    h = conv_block(h, stride=1)
+  with tf.variable_scope('conv6') as scope:
+    h = conv_block(h, stride=1)
 
-  out = tf.reshape(h, [BATCH_SIZE, HIDDEN_ENCODER_DIM // 2])
+  out = tf.reshape(h, [BATCH_SIZE, HIDDEN_ENCODER_DIM])
   return out
 
 def get_decoder(inp):
+  with tf.variable_scope('deconv00') as scope:
+    h = deconv_block(inp, stride=1)
+  with tf.variable_scope('deconv0') as scope:
+    h = deconv_block(h, stride=1)
+  with tf.variable_scope('deconv1a') as scope:
+    h = deconv_block(h, stride=1)
   with tf.variable_scope('deconv1') as scope:
-    h = deconv_block(inp)
+    h = deconv_block(h)
+  with tf.variable_scope('deconv2a') as scope:
+    h = deconv_block(h, stride=1)
   with tf.variable_scope('deconv2') as scope:
     h = deconv_block(h)
+  with tf.variable_scope('deconv3a') as scope:
+    h = deconv_block(h, stride=1)
   with tf.variable_scope('deconv3') as scope:
     h = deconv_block(h)
+  with tf.variable_scope('deconv4a') as scope:
+    h = deconv_block(h, stride=1)
   with tf.variable_scope('deconv4') as scope:
     h = deconv_block(h, output_channels=1)
 
@@ -96,20 +122,16 @@ class VAE:
         config.gpu_options.allow_growth=True
         self.sess = tf.Session(config=config)
 
-        images1 = tf.placeholder(tf.float32, shape=[None, 512, 256, 1])
-        images2 = tf.placeholder(tf.float32, shape=[None, 512, 256, 1])
+        images = tf.placeholder(tf.float32, shape=[BATCH_SIZE, 256, 256, 1])
 
         with tf.variable_scope('encoder') as scope:
-            a = get_encoder(images1)
-            scope.reuse_variables()
-            b = get_encoder(images2)
-            c = tf.concat(1, [a, b])
+            a = get_encoder(images)
 
         with tf.variable_scope('mu'):
-            mu_encoder = dense_block(c, output_size=LATENT_DIM)
+            mu_encoder = dense_block(a, output_size=LATENT_DIM)
 
         with tf.variable_scope('logvar'):
-            logvar_encoder = dense_block(c, output_size=LATENT_DIM)
+            logvar_encoder = dense_block(a, output_size=LATENT_DIM)
 
         with tf.name_scope('z'):
             # Sample epsilon
@@ -118,40 +140,24 @@ class VAE:
             std_encoder = tf.exp(0.5 * logvar_encoder)
             z = mu_encoder + tf.mul(std_encoder, epsilon)
 
-        with tf.variable_scope('unravel'):
-            d = dense_block(z, output_size=HIDDEN_ENCODER_DIM)
-            e = tf.slice(d, [0, 0], [-1, HIDDEN_ENCODER_DIM // 2])
-            f = tf.slice(d, [0, HIDDEN_ENCODER_DIM // 2], [-1, HIDDEN_ENCODER_DIM // 2])
-        e = tf.reshape(e, [-1, 32, 16, 64])
-        f = tf.reshape(f, [-1, 32, 16, 64])
+        d = tf.reshape(dense_block(z, output_size=HIDDEN_ENCODER_DIM), [-1, 16, 16, 64])
 
         with tf.variable_scope('decoder') as scope:
-            out1 = get_decoder(e)
-            scope.reuse_variables()
-            out2 = get_decoder(f)
+            out = get_decoder(d)
 
         KLD = -0.5 * tf.reduce_sum(1 + logvar_encoder - tf.pow(mu_encoder, 2) - tf.exp(logvar_encoder), reduction_indices=1)
-#        BCE1 = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(tf.reshape(out1, [BATCH_SIZE, -1]), tf.reshape(images1, [BATCH_SIZE, -1])), reduction_indices=1)
-#        BCE2 = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(tf.reshape(out2, [BATCH_SIZE, -1]), tf.reshape(images2, [BATCH_SIZE, -1])), reduction_indices=1)
-        BCE1 = tf.reduce_mean(tf.squared_difference(out1, images1))
-        BCE2 = tf.reduce_mean(tf.squared_difference(out2, images2))
-        x = BCE1 + BCE2 + KLD
-
         mean_KLD = tf.reduce_mean(KLD)
-        mean_BCE1 = tf.reduce_mean(BCE1)
-        mean_BCE2 = tf.reduce_mean(BCE2)
-        loss = mean_BCE1 + mean_BCE2 + mean_KLD
+        mean_BCE = tf.reduce_mean(tf.squared_difference(out, images))
+
+        loss = mean_BCE + 0.001 * mean_KLD
         tf.scalar_summary("KLD", mean_KLD)
-        tf.scalar_summary("BCE1", mean_BCE1)
-        tf.scalar_summary("BCE2", mean_BCE2)
+        tf.scalar_summary("BCE", mean_BCE)
         tf.scalar_summary("lowerbound", loss)
         train_step = tf.train.AdamOptimizer(1e-4).minimize(loss)
 
-        self.image1 = images1
-        self.image2 = images2
+        self.image = images
         self.loss = loss
-        self.image1_hat = out1
-        self.image2_hat = out2
+        self.image_hat = out
         self.train_step = train_step
         self.z = z
 
@@ -168,7 +174,7 @@ class VAE:
     def train(self):
         sess = self.sess
         random.seed(1337)
-        file_list = glob.glob('/home/george/Documents/ddsm/pics/*/scaled/*.png')
+        file_list = glob.glob('/home/george/Documents/ddsm/pics/*/merged/*.png')
         file_list.sort()
         random.shuffle(file_list)
 
@@ -181,22 +187,39 @@ class VAE:
         summary_writer = tf.train.SummaryWriter('tb_logs', graph=sess.graph)
         self._restore(sess, saver, initialize=True)
 
-        train_image1, train_image2, train_label = get_batch(file_list, BATCH_SIZE)
+        train_image, train_label = get_batch(file_list[:-BATCH_SIZE], BATCH_SIZE)
+        test_image, test_label = get_batch(file_list[-BATCH_SIZE:], BATCH_SIZE)
 
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+        self.test_image, _ = sess.run([test_image, test_label])
 
         batches_per_epoch = len(file_list) // BATCH_SIZE
         for epoch in range(NUM_EPOCHS):
             print("Epoch {0}".format(epoch))
             for i in range(batches_per_epoch):
                 global_step = epoch * batches_per_epoch + i
-                img1, img2, _ = sess.run([train_image1, train_image2, train_label])
+                img, _ = sess.run([train_image, train_label])
                 _, cur_loss, summary_str = sess.run([self.train_step, self.loss, summary_op],
-                    feed_dict={self.image1: img1, self.image2: img2})
+                    feed_dict={self.image: img})
                 summary_writer.add_summary(summary_str, global_step)
 
-                print("Step {0} | Loss: {1}".format(global_step, cur_loss))
+                if global_step % 10 == 0:
+                    print("Step {0} | Loss: {1}".format(global_step, cur_loss))
+                if global_step % 500 == 0:
+                    self.reconstruct(global_step)
+            saver.save(sess, CKPT_FILE)
+
+    # Parameters must be initialized
+    def reconstruct(self, step):
+        sess = self.sess
+        images = sess.run(self.image_hat, feed_dict={self.image: self.test_image})
+        _, a = plt.subplots(2, NUM_TEST)
+        for i in range(NUM_TEST):
+            a[0][i].imshow(self.test_image[i].reshape((256, 256)), cmap='gray', vmin=0, vmax=1)
+            a[1][i].imshow(images[i].reshape((256, 256)), cmap='gray', vmin=0, vmax=1)
+        plt.savefig("img/reconstruct{0}.png".format(step))
 
     def close(self):
         self.sess.close()

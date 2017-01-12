@@ -9,7 +9,7 @@ import random
 from batch import get_batch
 
 NUM_CLASSES = 3
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 TRAIN_RATIO = .9
 
 def _activation_summary(x):
@@ -62,15 +62,15 @@ def _variable_with_weight_decay(name, shape, stddev, wd):
     tf.add_to_collection('losses', weight_decay)
   return var
 
-def get_cnn(inp):
-  batch_size = tf.shape(inp)[0]
+def get_cnn(keep_prob, inp):
+  # conv1
   with tf.variable_scope('conv1') as scope:
     kernel = _variable_with_weight_decay('weights',
-                                         shape=[5, 5, 1, 64],
+                                         shape=[5, 5, 1, 32],
                                          stddev=5e-2,
                                          wd=0.0)
     conv = tf.nn.conv2d(inp, kernel, [1, 1, 1, 1], padding='SAME')
-    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
+    biases = _variable_on_cpu('biases', [32], tf.constant_initializer(0.0))
     bias = tf.nn.bias_add(conv, biases)
     conv1 = tf.nn.relu(bias, name=scope.name)
     _activation_summary(conv1)
@@ -78,14 +78,16 @@ def get_cnn(inp):
   # pool1
   pool1 = tf.nn.max_pool(conv1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
                          padding='SAME', name='pool1')
+  # norm1
+  norm1 = tf.nn.local_response_normalization(pool1)
 
   # conv2
   with tf.variable_scope('conv2') as scope:
     kernel = _variable_with_weight_decay('weights',
-                                         shape=[3, 3, 64, 64],
+                                         shape=[5, 5, 32, 64],
                                          stddev=5e-2,
                                          wd=0.0)
-    conv = tf.nn.conv2d(pool1, kernel, [1, 1, 1, 1], padding='SAME')
+    conv = tf.nn.conv2d(norm1, kernel, [1, 1, 1, 1], padding='SAME')
     biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
     bias = tf.nn.bias_add(conv, biases)
     conv2 = tf.nn.relu(bias, name=scope.name)
@@ -94,27 +96,67 @@ def get_cnn(inp):
   # pool2
   pool2 = tf.nn.max_pool(conv2, ksize=[1, 2, 2, 1],
                          strides=[1, 2, 2, 1], padding='SAME', name='pool2')
+  # norm2
+  norm2 = tf.nn.local_response_normalization(pool2)
+
+  # conv3
+  with tf.variable_scope('conv3') as scope:
+    kernel = _variable_with_weight_decay('weights',
+                                         shape=[3, 3, 64, 64],
+                                         stddev=5e-2,
+                                         wd=0.0)
+    conv = tf.nn.conv2d(norm2, kernel, [1, 1, 1, 1], padding='SAME')
+    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
+    bias = tf.nn.bias_add(conv, biases)
+    conv3 = tf.nn.relu(bias, name=scope.name)
+    _activation_summary(conv3)
+
+  # pool3
+  pool3 = tf.nn.max_pool(conv3, ksize=[1, 2, 2, 1],
+                         strides=[1, 2, 2, 1], padding='SAME', name='pool3')
+
+  # conv4
+  with tf.variable_scope('conv4') as scope:
+    kernel = _variable_with_weight_decay('weights',
+                                         shape=[3, 3, 64, 64],
+                                         stddev=5e-2,
+                                         wd=0.0)
+    conv = tf.nn.conv2d(pool3, kernel, [1, 1, 1, 1], padding='SAME')
+    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
+    bias = tf.nn.bias_add(conv, biases)
+    conv4 = tf.nn.relu(bias, name=scope.name)
+    _activation_summary(conv4)
+
+  conv4_drop = tf.nn.dropout(conv4, keep_prob)
+
+  # conv5
+  with tf.variable_scope('conv5') as scope:
+    kernel = _variable_with_weight_decay('weights',
+                                         shape=[3, 3, 64, 64],
+                                         stddev=5e-2,
+                                         wd=0.0)
+    conv = tf.nn.conv2d(conv4_drop, kernel, [1, 1, 1, 1], padding='SAME')
+    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
+    bias = tf.nn.bias_add(conv, biases)
+    conv5 = tf.nn.relu(bias, name=scope.name)
+    _activation_summary(conv5)
+
+  conv5_drop = tf.nn.dropout(conv5, keep_prob)
 
   # local3
   with tf.variable_scope('local3') as scope:
     # Move everything into depth so we can perform a single matrix multiply.
-    reshape = tf.reshape(pool2, [batch_size, -1])
-    dim = 16 * 32 * 64
-    weights = _variable_with_weight_decay('weights', shape=[dim, 384],
+    reshape = tf.reshape(conv5_drop, [BATCH_SIZE, -1])
+    dim = reshape.get_shape()[-1]
+    weights = _variable_with_weight_decay('weights', shape=[dim, 256],
                                           stddev=0.04, wd=0.004)
-    biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))
+    biases = _variable_on_cpu('biases', [256], tf.constant_initializer(0.1))
     local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
     _activation_summary(local3)
 
-  # local4
-  with tf.variable_scope('local4') as scope:
-    weights = _variable_with_weight_decay('weights', shape=[384, 192],
-                                          stddev=0.04, wd=0.004)
-    biases = _variable_on_cpu('biases', [192], tf.constant_initializer(0.1))
-    local4 = tf.nn.relu(tf.matmul(local3, weights) + biases, name=scope.name)
-    _activation_summary(local4)
+  local3_drop = tf.nn.dropout(local3, keep_prob)
 
-  return local4
+  return local3_drop
 
 def get_loss(logits, labels):
   cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
@@ -122,19 +164,15 @@ def get_loss(logits, labels):
   cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
   return cross_entropy_mean
 
-def inference(images1, images2, labels):
+def inference(keep_prob, images, labels):
   labels = tf.cast(labels, tf.int64)
-  with tf.variable_scope('cnns') as scope:
-    cnn1 = get_cnn(images1)
-    scope.reuse_variables()
-    cnn2 = get_cnn(images2)
-  together = tf.concat(1, [cnn1, cnn2])
+  cnn = get_cnn(keep_prob, images)
   with tf.variable_scope('softmax_linear') as scope:
-    weights = _variable_with_weight_decay('weights', shape=[192*2, NUM_CLASSES],
-                                          stddev=1/(2*192.0), wd=0.0)
+    weights = _variable_with_weight_decay('weights', shape=[256, NUM_CLASSES],
+                                          stddev=1/(256.0), wd=0.0)
     biases = _variable_on_cpu('biases', [NUM_CLASSES],
                               tf.constant_initializer(0.0))
-    softmax_linear = tf.add(tf.matmul(together, weights), biases, name=scope.name)
+    softmax_linear = tf.add(tf.matmul(cnn, weights), biases, name=scope.name)
     _activation_summary(softmax_linear)
 
   correct_prediction = tf.equal(tf.argmax(softmax_linear, 1), labels)
@@ -148,20 +186,20 @@ config = tf.ConfigProto()
 config.gpu_options.allow_growth=True
 with tf.Session(config=config) as sess:
   random.seed(1337)
-  file_list = glob.glob('/home/george/Documents/ddsm/pics/*/scaled/*.png')
+  file_list = glob.glob('/home/george/Documents/ddsm/pics/*/merged/*.png')
   file_list.sort()
   random.shuffle(file_list)
   num_training = int(len(file_list) * TRAIN_RATIO)
   num_test = len(file_list) - num_training
   print('Running on {0} training images, {1} test images'.format(num_training, num_test))
-  train_image1, train_image2, train_label = get_batch(file_list[:num_training], BATCH_SIZE, resize=4)
-  test_image1, test_image2, test_label = get_batch(file_list[num_training:], BATCH_SIZE, resize=4)
+  train_image, train_label = get_batch(file_list[:num_training], BATCH_SIZE)
+  test_image, test_label = get_batch(file_list[num_training:], BATCH_SIZE)
 
   print('Building model')
-  images1 = tf.placeholder(tf.float32, shape=[None, 512//4, 256//4, 1])
-  images2 = tf.placeholder(tf.float32, shape=[None, 512//4, 256//4, 1])
-  labels = tf.placeholder(dtype=tf.int32, shape=[None])
-  train_step, loss, accuracy = inference(images1, images2, labels)
+  keep_prob = tf.placeholder(tf.float32)
+  images = tf.placeholder(tf.float32, shape=[BATCH_SIZE, 256, 256, 1])
+  labels = tf.placeholder(dtype=tf.int32, shape=[BATCH_SIZE])
+  train_step, loss, accuracy = inference(keep_prob, images, labels)
 
   coord = tf.train.Coordinator()
   threads = tf.train.start_queue_runners(sess=sess, coord=coord)
@@ -172,16 +210,16 @@ with tf.Session(config=config) as sess:
     print('Epoch {0}'.format(epoch))
     for i in range(batches_per_epoch):
       global_step = epoch * batches_per_epoch + i
-      a, b, c = sess.run([train_image1, train_image2, train_label])
-      _, los = sess.run([train_step, loss], feed_dict={images1:a, images2:b, labels:c})
+      a, c = sess.run([train_image, train_label])
+      _, los = sess.run([train_step, loss], feed_dict={keep_prob:0.5, images:a, labels:c})
       if global_step % 10 == 0:
         print("Step {0} Loss {1}".format(global_step, los))
 
     losses = []
     accuracies = []
     for i in range(num_test // BATCH_SIZE):
-      a, b, c = sess.run([test_image1, test_image2, test_label])
-      los, acc = sess.run([loss, accuracy], feed_dict={images1:a, images2:b, labels:c})
+      a, c = sess.run([test_image, test_label])
+      los, acc = sess.run([loss, accuracy], feed_dict={keep_prob:1.0, images:a, labels:c})
       losses.append(los)
       accuracies.append(acc)
     los = np.mean(losses)

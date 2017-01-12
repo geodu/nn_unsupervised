@@ -24,7 +24,7 @@ def res_block(inp):
 
     return inp + h
 
-def deconv_block(inp, relu=True, output_channels=64):
+def deconv_block(inp, relu=True, output_channels=64, stride=2):
     """
     TODO: Decide whether or not to add bias.
         biases = tf.get_variable('biases', [output_shape[-1]], initializer=tf.constant_initializer(0.0))
@@ -32,8 +32,8 @@ def deconv_block(inp, relu=True, output_channels=64):
     """
     inp_shape = inp.get_shape()
     kernel_shape = (3, 3, output_channels, inp_shape[-1])
-    output_shape = (int(inp_shape[0]), int(inp_shape[1] * 2), int(inp_shape[2] * 2), output_channels)
-    strides = [1, 2, 2, 1]
+    output_shape = (int(inp_shape[0]), int(inp_shape[1] * stride), int(inp_shape[2] * stride), output_channels)
+    strides = [1, stride, stride, 1]
 
     weights = tf.get_variable('weights', kernel_shape,
         initializer=tf.random_normal_initializer(stddev=0.02))
