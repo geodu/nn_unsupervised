@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.contrib.layers.python.layers.layers import batch_norm
 
 def relu_block(x, alpha=0., max_value=None):
     negative_part = tf.nn.relu(-x)
@@ -9,7 +10,7 @@ def relu_block(x, alpha=0., max_value=None):
     x -= tf.constant(alpha, dtype=tf.float32) * negative_part
     return x
 
-def res_block(inp):
+def res_block(inp, reuse, is_training_cond):
     """ResNet B Block.
     TODO: decide whether bias is worth it
     """
@@ -17,12 +18,15 @@ def res_block(inp):
     assert inp_shape[-1] == 64 # Must have 64 channels to start.
 
     with tf.variable_scope("resconv1"):
-        h = conv_block(inp, relu=True)
+        h = conv_block(inp)
+        h = batch_norm(h, reuse=reuse, is_training=is_training_cond)
+        h = tf.nn.relu(h)
 
     with tf.variable_scope("resconv2"):
         h = conv_block(h)
+        h = batch_norm(h, reuse=reuse, is_training=is_training_cond)
 
-    return inp + h
+    return tf.nn.relu(inp + h)
 
 def deconv_block(inp, relu=True, output_channels=64, stride=2):
     """
