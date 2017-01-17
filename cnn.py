@@ -146,7 +146,7 @@ def get_cnn(keep_prob, inp):
   # local3
   with tf.variable_scope('local3') as scope:
     # Move everything into depth so we can perform a single matrix multiply.
-    reshape = tf.reshape(conv5_drop, [BATCH_SIZE, -1])
+    reshape = tf.reshape(conv5_drop, [-1, 32*32*64])
     dim = reshape.get_shape()[-1]
     weights = _variable_with_weight_decay('weights', shape=[dim, 256],
                                           stddev=0.04, wd=0.004)
@@ -182,48 +182,52 @@ def inference(keep_prob, images, labels):
   train_step = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(loss)
   return train_step, loss, accuracy
 
-config = tf.ConfigProto()
-config.gpu_options.allow_growth=True
-with tf.Session(config=config) as sess:
-  random.seed(1337)
-  file_list = glob.glob('/home/george/Documents/ddsm/pics/*/merged/*.png')
-  file_list.sort()
-  random.shuffle(file_list)
-  num_training = int(len(file_list) * TRAIN_RATIO)
-  num_test = len(file_list) - num_training
-  print('Running on {0} training images, {1} test images'.format(num_training, num_test))
-  train_image, train_label = get_batch(file_list[:num_training], BATCH_SIZE)
-  test_image, test_label = get_batch(file_list[num_training:], BATCH_SIZE)
+def main():
+  config = tf.ConfigProto()
+  config.gpu_options.allow_growth=True
+  with tf.Session(config=config) as sess:
+    random.seed(1337)
+    file_list = glob.glob('/home/george/Documents/ddsm/pics/*/merged/*.png')
+    file_list.sort()
+    random.shuffle(file_list)
+    num_training = int(len(file_list) * TRAIN_RATIO)
+    num_test = len(file_list) - num_training
+    print('Running on {0} training images, {1} test images'.format(num_training, num_test))
+    train_image, train_label = get_batch(file_list[:num_training], BATCH_SIZE)
+    test_image, test_label = get_batch(file_list[num_training:], BATCH_SIZE)
 
-  print('Building model')
-  keep_prob = tf.placeholder(tf.float32)
-  images = tf.placeholder(tf.float32, shape=[BATCH_SIZE, 256, 256, 1])
-  labels = tf.placeholder(dtype=tf.int32, shape=[BATCH_SIZE])
-  train_step, loss, accuracy = inference(keep_prob, images, labels)
+    print('Building model')
+    keep_prob = tf.placeholder(tf.float32)
+    images = tf.placeholder(tf.float32, shape=[BATCH_SIZE, 256, 256, 1])
+    labels = tf.placeholder(dtype=tf.int32, shape=[BATCH_SIZE])
+    train_step, loss, accuracy = inference(keep_prob, images, labels)
 
-  coord = tf.train.Coordinator()
-  threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-  sess.run(tf.initialize_all_variables())
+    coord = tf.train.Coordinator()
+    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+    sess.run(tf.initialize_all_variables())
 
-  batches_per_epoch = num_training // BATCH_SIZE
-  for epoch in range(50):
-    print('Epoch {0}'.format(epoch))
-    for i in range(batches_per_epoch):
-      global_step = epoch * batches_per_epoch + i
-      a, c = sess.run([train_image, train_label])
-      _, los = sess.run([train_step, loss], feed_dict={keep_prob:0.5, images:a, labels:c})
-      if global_step % 10 == 0:
-        print("Step {0} Loss {1}".format(global_step, los))
+    batches_per_epoch = num_training // BATCH_SIZE
+    for epoch in range(50):
+      print('Epoch {0}'.format(epoch))
+      for i in range(batches_per_epoch):
+        global_step = epoch * batches_per_epoch + i
+        a, c = sess.run([train_image, train_label])
+        _, los = sess.run([train_step, loss], feed_dict={keep_prob:0.5, images:a, labels:c})
+        if global_step % 10 == 0:
+          print("Step {0} Loss {1}".format(global_step, los))
 
-    losses = []
-    accuracies = []
-    for i in range(num_test // BATCH_SIZE):
-      a, c = sess.run([test_image, test_label])
-      los, acc = sess.run([loss, accuracy], feed_dict={keep_prob:1.0, images:a, labels:c})
-      losses.append(los)
-      accuracies.append(acc)
-    los = np.mean(losses)
-    acc = np.mean(accuracies)
-    print("\nTest Loss {0} Test Accuracy {1}\n".format(los, acc))
-  coord.request_stop()
-  coord.join(threads)
+      losses = []
+      accuracies = []
+      for i in range(num_test // BATCH_SIZE):
+        a, c = sess.run([test_image, test_label])
+        los, acc = sess.run([loss, accuracy], feed_dict={keep_prob:1.0, images:a, labels:c})
+        losses.append(los)
+        accuracies.append(acc)
+      los = np.mean(losses)
+      acc = np.mean(accuracies)
+      print("\nTest Loss {0} Test Accuracy {1}\n".format(los, acc))
+    coord.request_stop()
+    coord.join(threads)
+
+if __name__ == '__main__':
+  main()
