@@ -12,11 +12,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 BATCH_SIZE = 8
-NUM_TEST = 256
+NUM_TEST = 1000
 CONV_FINAL_DIM = 16 * 16 * 64
 LATENT_DIM = 256
 CKPT_FILE = "ckpt/weights"
-NUM_EPOCHS = 80
+NUM_EPOCHS = 50
 
 def _activation_summary(x):
   """Helper to create summaries for activations.
@@ -101,11 +101,11 @@ def get_encoder(inp, keep_prob):
   return h
 
 def get_decoder(inp, keep_prob):
-  h = tf.nn.dropout(inp, keep_prob)
+  #h = tf.nn.dropout(inp, keep_prob)
 
   with tf.variable_scope('dec_dense') as scope:
-    h = dense_block(h, leaky_relu=True, output_size=CONV_FINAL_DIM)
-  h = tf.nn.dropout(h, keep_prob)
+    h = dense_block(inp, leaky_relu=True, output_size=CONV_FINAL_DIM)
+  #h = tf.nn.dropout(h, keep_prob)
 
   h = tf.reshape(h, [-1, 16, 16, 64])
 
@@ -178,6 +178,8 @@ class VAE:
         self.loss = loss
         self.image_hat = out
         self.train_step = train_step
+        self.mu = mu_encoder
+        self.logvar = logvar_encoder
         self.z = z
 
     def _restore(self, saver, initialize=False):
@@ -243,7 +245,7 @@ class VAE:
         images = sess.run(self.image_hat, feed_dict={self.images: test_image, self.keep_prob: 1.0})
         _, a = plt.subplots(2, 6)
         for i in range(6):
-            a[0][i].imshow(self.test_image[i].reshape((256, 256)), cmap='gray', vmin=0, vmax=1)
+            a[0][i].imshow(test_image[i].reshape((256, 256)), cmap='gray', vmin=0, vmax=1)
             a[1][i].imshow(images[i].reshape((256, 256)), cmap='gray', vmin=0, vmax=1)
         plt.savefig("img/reconstruct{0}.png".format(step))
 
@@ -254,24 +256,28 @@ class VAE:
         self._restore(tf.train.Saver())
 
         print('Dumping test data and labels.')
-        test_samples = np.zeros((NUM_TEST, LATENT_DIM))
+        test_samples = np.zeros((NUM_TEST, LATENT_DIM*2))
         test_labels = np.zeros(NUM_TEST)
         for i in range(NUM_TEST // BATCH_SIZE):
-            img, labels = sess.run([self.test_image, self.train_label])
-            samples = sess.run(self.z, feed_dict={self.images: img, self.keep_prob: 1.0})
+            img, labels = sess.run([self.test_image, self.test_label])
+            mu, var = sess.run((self.mu, self.logvar), feed_dict={self.images: img, self.keep_prob: 1.0})
+            samples = np.hstack((mu, var))
             test_samples[i*BATCH_SIZE:(i+1)*BATCH_SIZE, :] = samples
             test_labels[i*BATCH_SIZE:(i+1)*BATCH_SIZE] = labels
+        print(test_samples.shape)
         np.savez('ddsm_test', data=test_samples, labels=test_labels)
 
         print('Dumping training data and labels.')
-        train_samples = np.zeros((self.batches_per_epoch * BATCH_SIZE, LATENT_DIM))
+        train_samples = np.zeros((self.batches_per_epoch * BATCH_SIZE, LATENT_DIM * 2))
         train_labels = np.zeros(self.batches_per_epoch * BATCH_SIZE)
         for i in range(self.batches_per_epoch):
             img, labels = sess.run([self.train_image, self.train_label])
-            samples = sess.run(self.z, feed_dict={self.images: img, self.keep_prob: 1.0})
+            mu, var = sess.run((self.mu, self.logvar), feed_dict={self.images: img, self.keep_prob: 1.0})
+            samples = np.hstack((mu, var))
             train_samples[i*BATCH_SIZE:(i+1)*BATCH_SIZE, :] = samples
             train_labels[i*BATCH_SIZE:(i+1)*BATCH_SIZE] = labels
 
+        print(train_samples.shape)
         np.savez('ddsm_train', data=train_samples, labels=train_labels)
         self._close()
 
@@ -281,4 +287,4 @@ class VAE:
         self.sess.close()
 
 v = VAE()
-v.test_dump()
+v.train()

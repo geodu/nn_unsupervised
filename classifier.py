@@ -2,11 +2,12 @@ import numpy as np
 from scipy import sparse
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
 
 use_svm = True
 def _get_classifier(c):
     if use_svm:
-        return SVC(C=c, kernel='rbf')
+        return SVC(C=c, kernel='rbf', gamma=0.0005)
     else:
         return LogisticRegression(C=c)
 
@@ -19,18 +20,24 @@ def get_nn_features():
     test_feature_vectors = test_dict['data']
     test_labels = test_dict['labels']
 
+    scaler = StandardScaler().fit(train_val_feature_vectors)
+    train_val_feature_vectors = scaler.transform(train_val_feature_vectors)
+    test_feature_vectors = scaler.transform(test_feature_vectors)
+
     total_train_val = len(train_val_labels)
-    total_val = total_train_val // 10
+    total_val = total_train_val // 5
 
     train_feature_vectors = train_val_feature_vectors[total_val:, :]
     validation_feature_vectors = train_val_feature_vectors[:total_val, :]
     train_labels = train_val_labels[total_val:]
     validation_labels = train_val_labels[:total_val]
 
+    """
     test_feature_vectors = sparse.csr_matrix(test_feature_vectors)
     train_val_feature_vectors = sparse.csr_matrix(train_val_feature_vectors)
     train_feature_vectors = sparse.csr_matrix(train_feature_vectors)
     validation_feature_vectors = sparse.csr_matrix(validation_feature_vectors)
+    """
 
     print("Split dataset into training, test and validation sets.")
     print("Training size: {}".format(np.shape(train_feature_vectors)))
@@ -46,14 +53,12 @@ def check_matches(labels, predicted_labels):
     return proportion_matched
 
 def evaluate_pairs():
-    train_feature_vectors, validation_feature_vectors, train_val_feature_vectors, test_feature_vectors, train_labels, validation_labels, train_val_labels, test_labels = get_nn_features()
-
-    process(train_feature_vectors, validation_feature_vectors, train_val_feature_vectors, test_feature_vectors, train_labels, validation_labels, train_val_labels, test_labels)
+    process(*get_nn_features())
 
 def process(train_feature_vectors, validation_feature_vectors, train_val_feature_vectors, test_feature_vectors, train_labels, validation_labels, train_val_labels, test_labels):
-    print("Using validation set to optimize over value of regularization parameter in logistic regression, C.")
+    print("Using validation set to optimize over value of regularization parameter in regression, C.")
     best_proportion_matched = 0
-    C_RANGE = [0.1, 1, 10]
+    C_RANGE = [1, 10, 100, 1000, 10000, 100000]
     for C_cur in C_RANGE:
         """
         It turns out that the default value is pretty good, with performance smoothly increasing then smoothly
