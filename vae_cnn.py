@@ -16,7 +16,7 @@ NUM_TEST = 1000
 CONV_FINAL_DIM = 16 * 16 * 64
 LATENT_DIM = 256
 CKPT_FILE = "ckpt/weights"
-NUM_EPOCHS = 50
+NUM_EPOCHS = 20
 
 def _activation_summary(x):
   """Helper to create summaries for activations.
@@ -232,8 +232,7 @@ class VAE:
 
                 if global_step % 10 == 0:
                     print("Step {0} | Loss: {1}".format(global_step, cur_loss))
-                if global_step % 2000 == 0:
-                    self.reconstruct(global_step)
+            self.reconstruct(epoch)
             saver.save(sess, CKPT_FILE)
 
         self._close()
@@ -246,8 +245,10 @@ class VAE:
         _, a = plt.subplots(2, 6)
         for i in range(6):
             a[0][i].imshow(test_image[i].reshape((256, 256)), cmap='gray', vmin=0, vmax=1)
+            a[0][i].axis('off')
             a[1][i].imshow(images[i].reshape((256, 256)), cmap='gray', vmin=0, vmax=1)
-        plt.savefig("img/reconstruct{0}.png".format(step))
+            a[1][i].axis('off')
+        plt.savefig("img/reconstruct{0}.png".format(step), bbox_inches='tight')
 
     # Parameters must not be initialized
     def test_dump(self):
